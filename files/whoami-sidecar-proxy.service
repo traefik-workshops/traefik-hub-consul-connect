@@ -1,0 +1,14 @@
+[Unit]
+Description=Consul Connect Sidecar Proxy for Whoami
+Requires=whoami.service
+After=network-online.target whoami.service
+Wants=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/bin/consul connect proxy -sidecar-for whoami
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

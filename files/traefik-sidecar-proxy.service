@@ -1,0 +1,14 @@
+[Unit]
+Description=Consul Connect Sidecar Proxy for Traefik Hub
+Requires=traefik-hub.service
+After=network-online.target traefik-hub.service
+Wants=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/bin/consul connect proxy -sidecar-for traefik
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

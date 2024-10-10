@@ -1,0 +1,31 @@
+[hub]
+  token = "YOUR_HUB_TOKEN"
+
+[entryPoints]
+  [entryPoints.web]
+  address = ":80"
+
+  [entryPoints.websecure]
+  address = ":443"
+  
+[log]
+  level = "INFO"
+  filePath = "/var/log/traefik-hub.log"
+
+# Enable API and dashboard
+[api]
+  dashboard = true
+  insecure = true
+
+# Enable ping
+[ping]
+
+[accesslog]
+  addInternals = true
+  
+[providers.consulCatalog]
+  exposedByDefault = false
+  connectAware = true
+  prefix = "traefik"
+  [providers.consulCatalog.endpoint]
+      address = "127.0.0.1:8500"
