@@ -7,7 +7,7 @@ How to use Traefik Hub with Consul Connect on an Ubuntu Linux virtual machine (V
 To follow along in this tutorial, we will need:
 
 - A Linux machine running Ubuntu. For this tutorial, we are using [Multipass](https://multipass.run/) to orchestrate an Ubuntu Focal VM.
-- [systemd](https://en.wikipedia.org/wiki/Systemd)
+- [systemd](https://en.wikipedia.org/wiki/Systemd) (should be included in Ubuntu)
 - [Latest Traefik Hub binary](https://github.com/traefik/hub/releases)
 - [Consul](https://developer.hashicorp.com/consul/install#linux)
 
@@ -22,11 +22,11 @@ cd traefik-hub-consul-connect
 
 First, we will install Traefik Hub on Linux. We can do this by following the instructions in the [official Traefik Hub documentation](https://doc.traefik.io/traefik-hub/api-gateway/setup/linux/installation).
 
-Here is the `traefik-hub.toml` file:
+Here is the `traefik-hub.toml` file we will use for this tutorial:
 
-```toml :files/traefik-hub-intro.hcl
+```toml :files/traefik-hub-intro.toml
 [hub]
-  token = "YOUR_HUB_TOKEN"
+  token = "$HUB_TOKEN"
 
 [entryPoints]
   [entryPoints.web]
@@ -34,6 +34,7 @@ Here is the `traefik-hub.toml` file:
 
   [entryPoints.websecure]
   address = ":443"
+  
 [log]
   level = "INFO"
   filePath = "/var/log/traefik-hub.log"
@@ -50,10 +51,13 @@ Here is the `traefik-hub.toml` file:
   addInternals = true
 ```
 
-Once we have successfully installed Traefik Hub, run the following command to check that Hub started correctly.
+Once we have successfully installed Traefik Hub, run the following command to update the configuration file and check that Hub started correctly:
 
 ```sh
-sudo systemctl status traefik-hub.service
+export HUB_TOKEN=...
+cat files/traefik-hub-intro.toml | envsubst | sudo tee /etc/traefik-hub/traefik-hub.toml
+sudo systemctl restart traefik-hub.service
+sudo systemctl --no-pager status traefik-hub.service
 ```
 
 ```sh
@@ -80,23 +84,40 @@ And if we head over to the Traefik Hub online dashboard, we should also see that
 
 ![Traefik Hub Online Dashboard](img/traefik-hub-online-dashboard.png)
 
+>[!NOTE]
+> You might need to add some firewall rules depending on your cloud provider.
+
+>[!WARNING]
+> You might need to add some firewall rules to allow traffic depending on your cloud provider.
+
 ## Integrating Traefik Hub with Consul Connect
 
 [Consul Connect](https://www.consul.io/docs/connect?ref=traefik.io) is a proxy layer that routes all service-to-service traffic through an encrypted and authenticated (Mutual TLS) tunnel.
 
 Traefik Hub needs the [Consul Catalog provider](https://doc.traefik.io/traefik/providers/consul-catalog/) to interact with Consul services.
 
-### Step 1: Modify the traefik-hub.toml file to include the Consul Catalog provider
+### Step 1: Create a standalone consul cluster
 
-Run the following command to access the `traefik-hub.toml` file
+Following [consul installation instructions](https://developer.hashicorp.com/consul/install#linux) you will have to configure it a little bit to make it work as a standalone cluster:
 
 ```sh
-sudo nano /etc/traefik-hub/traefik-hub.toml
+sudo cp files/consul-standalone.hcl /etc/consul.d/
+sudo systemctl start consul
+sudo systemctl enable consul
+sudo systemctl --no-pager status consul
 ```
 
-Add the Consul Catalog provider to the bottom of the file:
+### Step 2: Modify the traefik-hub.toml file to include the Consul Catalog provider
 
-```toml
+Run the following command to configure the `traefik-hub.toml` file to include Consul Catalog provider: 
+
+```sh
+cat files/traefik-hub-final.toml | envsubst | sudo tee /etc/traefik-hub/traefik-hub.toml
+```
+
+The provider declaration looks like this:
+
+```toml :files/traefik-hub-final.toml -s 26 -e 31
 [providers.consulCatalog]
   exposedByDefault = false
   connectAware = true
@@ -109,18 +130,15 @@ Restart Traefik Hub:
 
 ```sh
 sudo systemctl restart traefik-hub.service
+sudo systemctl --no-pager status traefik-hub.service
 ```
 
-If we head over to the local dashboard, we should see the consul catalog provider in the services section:
-
-![Consul Catalog in Traefik local dashboard](img/consul-catalog.png)
-
-### Step 2: Configure Consul Services for Traefik Hub
+### Step 3: Configure Consul Services for Traefik Hub
 
 Register Traefik Hub with Consul by creating a new traefik-hub.hcl file:
 
 ```sh
-sudo touch /etc/consul.d/traefik-hub.hcl
+sudo cp files/traefik-hub.hcl /etc/consul.d/traefik-hub.hcl
 ```
 
 Add the following content:
@@ -142,11 +160,15 @@ service {
 }
 ```
 
-Reload Consul:
+Restart Consul:
 
 ```sh
-Consul reload
+sudo systemctl restart consul
 ```
+
+If we head over to the local dashboard, we should see the consul catalog provider in the services section:
+
+![Consul Catalog in Traefik local dashboard](img/consul-catalog.png)
 
 Next we need to Install Envoy Proxy as Consul Connect uses Envoy as the default sidecar proxy.
 
@@ -154,20 +176,19 @@ Next we need to Install Envoy Proxy as Consul Connect uses Envoy as the default 
 
 ```sh
 wget -O- https://apt.envoyproxy.io/signing.key | sudo gpg --dearmor -o /etc/apt/keyrings/envoy-keyring.gpg
-
 echo "deb [signed-by=/etc/apt/keyrings/envoy-keyring.gpg] https://apt.envoyproxy.io focal main" | sudo tee /etc/apt/sources.list.d/envoy.list
-
 sudo apt-get update
-
 sudo apt-get install envoy
-
 envoy --version
 ```
 
-After installing Envoy, we need to start the Consul Connect sidecar proxy for Traefik Hub by running the following command:
+After installing Envoy, we need to add the Consul Connect sidecar proxy service for Traefik Hub by running the following command:
 
 ```sh
-consul connect proxy -sidecar-for traefik &
+sudo cp files/traefik-sidecar-proxy.service /etc/systemd/system/
+sudo systemctl start traefik-sidecar-proxy
+sudo systemctl enable traefik-sidecar-proxy
+sudo systemctl --no-pager status traefik-sidecar-proxy
 ```
 
 ```sh
@@ -185,7 +206,13 @@ consul connect proxy -sidecar-for traefik &
 
 We are doing this because In Consul Connect, services communicate through local Envoy sidecar proxies. Traffic between services is routed through these proxies, enabling mTLS encryption and enforcing service mesh policies.
 
-To further simplify things and allow us run the proxy in the background, we can also create a service to run the sidecar proxy for Traefik by creating a `/etc/systemd/system/traefik-sidecar-proxy.service` and paste the following content in it:
+Behind the scene it will the following command you could have run manually:
+
+```sh
+consul connect proxy -sidecar-for traefik
+```
+
+The systemd unit file reflects this command:
 
 ```ini :files/traefik-sidecar-proxy.service
 [Unit]
@@ -196,24 +223,12 @@ Wants=network-online.target
 
 [Service]
 Restart=on-failure
-ExecStart=/usr/local/bin/consul connect proxy -sidecar-for traefik
+ExecStart=/usr/bin/consul connect proxy -sidecar-for traefik
 User=root
 Group=root
 
 [Install]
 WantedBy=multi-user.target
-```
-
-Apply the new service configuration:
-
-```sh
-sudo systemctl daemon-reload
-```
-
-Start the service
-
-```sh
-sudo systemctl start traefik-sidecar-proxy.service
 ```
 
 Now, If we head over to the consul dashboard, we should see the `traefik` service running.
@@ -269,13 +284,15 @@ sudo chmod +x /usr/local/bin/whoami
 
 Setting up whoami as a systemd service ensures it starts on boot and can be managed easily.
 
-Create the Service File:
+The following commands will setup the whoami service:
 
 ```sh
-sudo nano /etc/systemd/system/whoami.service
+sudo cp files/whoami.service /etc/systemd/system/
+sudo systemctl start whoami
+sudo systemctl enable whoami
 ```
 
-Add the following content to the file:
+This will add the following content to the file:
 
 ```ini :files/whoami.service
 [Unit]
@@ -299,23 +316,10 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
-Reload Systemd Daemon:
-
-```sh
-sudo systemctl daemon-reload
-```
-
-Enable and Start the whoami Service:
-
-```sh
-sudo systemctl enable whoami
-sudo systemctl start whoami
-```
-
 Check the Status of the Service:
 
 ```sh
-sudo systemctl status whoami
+sudo systemctl --no-pager status whoami
 ```
 
 ```sh
@@ -344,24 +348,24 @@ We need to create a Consul service definition for whoami so that it can be disco
 Create the Consul Service definition:
 
 ```sh
-sudo nano /etc/consul.d/whoami.hcl
+sudo cp files/whoami.hcl /etc/consul.d/whoami.hcl
 ```
 
-Add the following content to the file:
+Here is the whoami service definition:
 
 ```HCL :files/whoami.hcl
 service {
   name = "whoami"
   port = 8081
   connect {
-      sidecar_service {}
+    sidecar_service {}
   }
   tags = ["traefik.enable=true"]
   check {
-      name = "Whoami Health Check"
-      http = "http://localhost:8081/api"
-      interval = "10s"
-      timeout  = "1s"
+    name     = "Whoami Health Check"
+    http     = "http://localhost:8081/api"
+    interval = "10s"
+    timeout  = "1s"
   }
 }
 ```
@@ -369,37 +373,20 @@ service {
 Save the file and reload the Consul configuration:
 
 ```sh
-consul reload
+sudo systemctl restart consul
 ```
 
 ### Step 4: Start the Consul Connect Sidecar Proxy for whoami
 
 The sidecar proxy handles secure communication within the service mesh.
 
-Start the Sidecar Proxy:
+Start the Sidecar Proxy service:
 
 ```sh
-consul connect proxy -sidecar-for whoami &
-```
-
-> [!NOTE]
-> To make things easier, we can also run the sidecar proxy as a service by following the steps we used for the Traefik Hub sidecar proxy service and adding the following content:
-
-```ini :files/whoami-sidecar-proxy.service
-[Unit]
-Description=Consul Connect Sidecar Proxy for Whoami
-Requires=whoami.service
-After=network-online.target whoami.service
-Wants=network-online.target
-
-[Service]
-Restart=on-failure
-ExecStart=/usr/local/bin/consul connect proxy -sidecar-for whoami
-User=root
-Group=root
-
-[Install]
-WantedBy=multi-user.target
+sudo cp files/whoami-sidecar-proxy.service /etc/systemd/system/
+sudo systemctl start whoami-sidecar-proxy
+sudo systemctl enable whoami-sidecar-proxy
+sudo systemctl --no-pager status whoami-sidecar-proxy
 ```
 
 If we head over to our Consul dashboard, we should see the whoami service registered.
@@ -410,26 +397,42 @@ If we head over to our Consul dashboard, we should see the whoami service regist
 
 Next, we’ll need to update our Consul whoami service configuration to enable Traefik Hub to route traffic to the whoami service.
 
-Update the tags in the `whoami.hcl` file with the following:
+To do so, update the `whoami.hcl` file with the following:
 
-```HCL
-tags = [
-  "traefik.enable=true",
-  "traefik.http.routers.whoami.rule=PathPrefix(`/whoami`)",
-  "traefik.http.routers.whoami.entrypoints=web",
-  "traefik.http.middlewares.whoami-stripprefix.stripPrefix.prefixes=/whoami",
-  "traefik.http.routers.whoami.middlewares=whoami-stripprefix",
-  "traefik.consulcatalog.connect=true"
-  ]
+```sh
+sudo cp files/whoami-final.hcl /etc/consul.d/whoami.hcl
+```
+
+The only difference resides in tags:
+
+```diff :hack/diff.sh -r -a "-Nau files/whoami.hcl files/whoami-final.hcl"
+--- files/whoami.hcl
++++ files/whoami-final.hcl
+@@ -4,7 +4,14 @@
+   connect {
+     sidecar_service {}
+   }
+-  tags = ["traefik.enable=true"]
++  tags = [
++    "traefik.enable=true",
++    "traefik.http.routers.whoami.rule=PathPrefix(`/whoami`)",
++    "traefik.http.routers.whoami.entrypoints=web",
++    "traefik.consulcatalog.connect=true",
++    "traefik.http.middlewares.whoami-stripprefix.stripPrefix.prefixes=/whoami",
++    "traefik.http.routers.whoami.middlewares=whoami-stripprefix"
++  ]
+   check {
+     name     = "Whoami Health Check"
+     http     = "http://localhost:8081/api"
 ```
 
 > [!NOTE]
 > Alternatively, we can also include `connectByDefault = true` to the static configuration if we want Traefik Hub to automatically connect to all consul services.
 
-Reload Consul:
+Restart Consul:
 
 ```sh
-consul reload
+sudo systemctl restart consul
 ```
 
 If we head over to the Traefik Hub local dashboard, we should now see whoami as a route.
@@ -478,7 +481,7 @@ X-Real-Ip: ::1
 If we check the logs, we should see an entry for this request:
 
 ```sh
-sudo journalctl -u traefik-hub -f
+sudo journalctl -n 10 --no-pager -u traefik-hub | grep whoami
 ```
 
 ```sh

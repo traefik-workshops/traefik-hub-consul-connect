@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Restart=on-failure
-ExecStart=/usr/local/bin/consul connect proxy -sidecar-for traefik
+ExecStart=/usr/bin/consul connect proxy -sidecar-for traefik
 User=root
 Group=root
 

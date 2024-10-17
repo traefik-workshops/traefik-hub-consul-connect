@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Restart=on-failure
-ExecStart=/usr/local/bin/consul connect proxy -sidecar-for whoami
+ExecStart=/usr/bin/consul connect proxy -sidecar-for whoami
 User=root
 Group=root
 
