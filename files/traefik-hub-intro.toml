@@ -1,5 +1,5 @@
 [hub]
-  token = "YOUR_HUB_TOKEN"
+  token = "$HUB_TOKEN"
 
 [entryPoints]
   [entryPoints.web]
