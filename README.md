@@ -84,9 +84,6 @@ And if we head over to the Traefik Hub online dashboard, we should also see that
 
 ![Traefik Hub Online Dashboard](img/traefik-hub-online-dashboard.png)
 
->[!NOTE]
-> You might need to add some firewall rules depending on your cloud provider.
-
 >[!WARNING]
 > You might need to add some firewall rules to allow traffic depending on your cloud provider.
 
